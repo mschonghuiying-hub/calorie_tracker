@@ -19,6 +19,12 @@ var ACTIVITY_FACTORS_ = {
 //   lose: ~0.5 kg/week deficit · maintain: none · gain: lean surplus
 var GOAL_DELTAS_ = { lose: -500, maintain: 0, gain: 350 };
 
+// Safety guards so small/sedentary profiles never get an extreme target:
+//   - never cut more than this fraction of TDEE
+//   - never recommend fewer calories than the per-sex floor
+var MAX_DEFICIT_FRACTION_ = 0.25;
+var MIN_CALORIES_ = { male: 1500, female: 1200 };
+
 var PROTEIN_G_PER_KG_ = 1.8; // grams of protein per kg bodyweight
 var FAT_CALORIE_SHARE_ = 0.25; // fraction of target calories from fat
 
@@ -38,7 +44,16 @@ function computeTargets_(profile) {
   var tdee = bmr * factor;
 
   var delta = GOAL_DELTAS_[profile.goal] || 0;
+  // Cap an aggressive deficit so small/sedentary profiles aren't cut too hard.
+  if (delta < 0) {
+    var maxDeficit = Math.round(tdee * MAX_DEFICIT_FRACTION_);
+    if (-delta > maxDeficit) delta = -maxDeficit;
+  }
   var calories = Math.round(tdee + delta);
+
+  // Enforce a minimum-calorie floor for safety.
+  var floor = MIN_CALORIES_[profile.sex] || 1200;
+  if (calories < floor) calories = floor;
 
   var protein = Math.round(PROTEIN_G_PER_KG_ * kg);
   var fat = Math.round((calories * FAT_CALORIE_SHARE_) / 9);

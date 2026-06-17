@@ -133,7 +133,9 @@ up. They run their own `/profile`; their rows and targets stay separate.
 
 ## Customizing
 - **Targets math** — edit `src/Targets.gs` (activity factors, goal deltas,
-  `1.8 g/kg` protein, `25%` fat share).
+  `1.8 g/kg` protein, `25%` fat share). It also guards against extreme targets:
+  the deficit is capped at 25% of TDEE and calories never drop below a floor
+  (1200 women / 1500 men) — adjust `MAX_DEFICIT_FRACTION_` / `MIN_CALORIES_`.
 - **Meals / estimation behavior** — edit the prompt in `callGeminiFood_`
   (`src/Gemini.gs`).
 - **Model** — `GEMINI_MODEL_` in `src/Gemini.gs` (`gemini-2.5-flash`).
