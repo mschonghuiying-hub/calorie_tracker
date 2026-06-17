@@ -65,6 +65,14 @@ function processUpdate_(update) {
       return;
     }
 
+    // Any other text starting with "/" is an unknown command — never log it
+    // as food (that's how the "Invalid command" 0-kcal rows happened).
+    if (text.trim().charAt(0) === '/') {
+      sendMessage_(chatId, 'Unknown command. Try /help.');
+      markUpdateProcessed_(updateId);
+      return;
+    }
+
     // Otherwise treat the message as a food entry (photo or free text).
     handleFood_(chatId, msg);
     markUpdateProcessed_(updateId);
