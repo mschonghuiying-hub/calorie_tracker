@@ -157,7 +157,7 @@ user to resend with the missing piece (no partial profile saved).
   parse → compute → save → reply:
   ```
   ✅ Profile saved
-  Daily target: 2050 kcal · P 130g · C 205g · F 57g
+  Daily target: 2087 kcal · P 130g · C 261g · F 58g
   (Mifflin-St Jeor, moderate activity, lose ~0.5kg/week)
   ```
 - **`/profile`** (no args) → show current profile + targets.
@@ -167,10 +167,10 @@ user to resend with the missing piece (no partial profile saved).
   520 kcal · P 42g · C 55g · F 12g
 
   📊 Today 2026-06-17
-  Calories ███████░░░ 1450/2050
-  Protein  ███████░░░   98/ 130
-  Carbs    ██████░░░░  120/ 205
-  Fat      █████░░░░░   40/  57
+  Calories ███████░░░ 1450/2087
+  Protein  ████████░░   98/ 130
+  Carbs    █████░░░░░  120/ 261
+  Fat      ███████░░░   40/  58
   ```
   (Reuse `makeBar_` and the `formatSummaryTable_`-style monospace `<pre>` rendering.)
 - **`/today`** (analogous to the expense bot's `/summary`) → status bars + a
