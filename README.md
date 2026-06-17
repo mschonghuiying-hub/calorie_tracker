@@ -59,8 +59,12 @@ Fat      ███████░░░   40/  58
 **Check the day** — `/today` (or `/status`) shows the table plus a 💬 AI nudge
 about what's left and what to eat.
 
+**Check the week** — `/week` shows your average calories/macros per day over the
+last 7 days vs your targets (averaged over the days you actually logged).
+
 **Fix a mistake** — `/undo` removes your most recent food entry and shows the
-refreshed status.
+refreshed status. Any unknown `/command` replies with a hint instead of being
+logged as food.
 
 ---
 

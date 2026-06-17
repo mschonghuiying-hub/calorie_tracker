@@ -59,6 +59,12 @@ function processUpdate_(update) {
       return;
     }
 
+    if (isCommand_(text, 'week')) {
+      handleWeekCommand_(chatId);
+      markUpdateProcessed_(updateId);
+      return;
+    }
+
     if (isCommand_(text, 'undo')) {
       handleUndoCommand_(chatId);
       markUpdateProcessed_(updateId);
@@ -167,6 +173,22 @@ function handleTodayCommand_(chatId) {
   sendMessage_(chatId, reply, 'HTML');
 }
 
+function handleWeekCommand_(chatId) {
+  var profile = readProfile_(chatId);
+  if (!profile) {
+    sendMessage_(chatId,
+      'No profile yet. Send e.g.:\n' +
+      '/profile male 30 175cm 72kg moderately active lose weight');
+    return;
+  }
+  var wk = computeWeekSummary_(chatId);
+  if (!wk || !wk.days) {
+    sendMessage_(chatId, 'No food logged in the last 7 days yet.');
+    return;
+  }
+  sendMessage_(chatId, formatWeekTable_(wk, profile), 'HTML');
+}
+
 function handleUndoCommand_(chatId) {
   var removed = deleteLastFood_(chatId);
   if (!removed) {
@@ -204,11 +226,20 @@ function formatProfileReply_(profile, targets, saved) {
     '(Mifflin-St Jeor · ' + profile.activity + ' activity · goal: ' + profile.goal + ')';
 }
 
+function formatStatusTable_(totals, targets) {
+  return barTable_('📊 Today ' + todayIso_(), totals, targets);
+}
+
+function formatWeekTable_(wk, targets) {
+  return barTable_('📅 Last 7 days · avg/day (' + wk.days +
+                   ' day' + (wk.days === 1 ? '' : 's') + ' logged)', wk.avg, targets);
+}
+
 /**
  * Monospace progress-bar table: one row each for Calories/Protein/Carbs/Fat,
  * a 10-segment █/░ bar, and "actual/target". Wrapped in <pre> for Telegram.
  */
-function formatStatusTable_(totals, targets) {
+function barTable_(header, totals, targets) {
   var BAR_LEN = 10;
   var spec = [
     { label: 'Calories', actual: Math.round(totals.calories),  target: targets.target_calories },
@@ -235,7 +266,7 @@ function formatStatusTable_(totals, targets) {
            padLeft_(r.actual, actW) + '/' + padLeft_(r.target, tgtW);
   }).join('\n');
 
-  return '📊 Today ' + todayIso_() + '\n<pre>' + body + '</pre>';
+  return header + '\n<pre>' + body + '</pre>';
 }
 
 function makeBar_(actual, target, len) {
@@ -252,7 +283,7 @@ function helpText_() {
     '1) Set your targets:',
     '   /profile male 30 175cm 72kg moderately active lose weight',
     '2) Log food: send a photo or text like "chicken rice bowl".',
-    '3) Check the day: /today',
+    '3) Check the day: /today · the week: /week',
     '',
     '/undo removes your last entry.',
     '/profile (no text) shows your current targets.'

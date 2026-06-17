@@ -107,6 +107,63 @@ function computeTodayTotals_(chatId) {
 }
 
 /**
+ * Averages this user's daily intake over the last 7 calendar days (script tz).
+ * Averages across days that actually have entries, so a missed day doesn't drag
+ * the average to zero. Returns { days, avg: {calories, protein_g, carbs_g, fat_g} }
+ * with days === 0 when nothing was logged in the window.
+ */
+function computeWeekSummary_(chatId) {
+  var sheet = foodSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { days: 0 };
+
+  var values = sheet.getRange(2, 1, lastRow - 1, FOOD_HEADERS_.length).getValues();
+  var target = String(chatId);
+
+  var tz = tz_();
+  var now = new Date();
+  var validDates = {};
+  for (var d = 0; d < 7; d++) {
+    var dt = new Date(now.getTime() - d * 86400000);
+    validDates[Utilities.formatDate(dt, tz, 'yyyy-MM-dd')] = true;
+  }
+
+  var perDay = {};
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][1]).trim() !== target) continue;
+    var ymd = asYmd_(values[i][0]);
+    if (!validDates[ymd]) continue;
+    if (!perDay[ymd]) perDay[ymd] = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+    perDay[ymd].calories  += Number(values[i][4]) || 0;
+    perDay[ymd].protein_g += Number(values[i][5]) || 0;
+    perDay[ymd].carbs_g   += Number(values[i][6]) || 0;
+    perDay[ymd].fat_g     += Number(values[i][7]) || 0;
+  }
+
+  var keys = Object.keys(perDay);
+  var n = keys.length;
+  if (n === 0) return { days: 0 };
+
+  var sum = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  for (var k = 0; k < n; k++) {
+    var t = perDay[keys[k]];
+    sum.calories += t.calories;
+    sum.protein_g += t.protein_g;
+    sum.carbs_g += t.carbs_g;
+    sum.fat_g += t.fat_g;
+  }
+  return {
+    days: n,
+    avg: {
+      calories: sum.calories / n,
+      protein_g: sum.protein_g / n,
+      carbs_g: sum.carbs_g / n,
+      fat_g: sum.fat_g / n
+    }
+  };
+}
+
+/**
  * Returns this user's stored profile + targets, or null if none yet.
  * Shape: { rowIndex, sex, age, height_cm, weight_kg, activity, goal,
  *          target_calories, target_protein_g, target_carbs_g, target_fat_g }
