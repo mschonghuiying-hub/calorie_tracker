@@ -212,16 +212,32 @@ function geminiResponse_(body) {
   if (!apiKey) throw new Error('GEMINI_API_KEY not set');
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
             GEMINI_MODEL_ + ':generateContent?key=' + encodeURIComponent(apiKey);
-  var res = UrlFetchApp.fetch(url, {
+  var options = {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify(body),
     muteHttpExceptions: true
-  });
-  var code = res.getResponseCode();
-  var text = res.getContentText();
-  if (code < 200 || code >= 300) throw new Error('Gemini ' + code + ': ' + text);
-  return JSON.parse(text);
+  };
+
+  // Gemini's free tier intermittently returns 429/500/503 under load. These
+  // are recoverable, so retry with exponential backoff before surfacing an
+  // error to the user (worst case ~7s of waiting across 4 attempts).
+  var MAX_ATTEMPTS = 4;
+  var lastText = '';
+  for (var attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    var res = UrlFetchApp.fetch(url, options);
+    var code = res.getResponseCode();
+    lastText = res.getContentText();
+    if (code >= 200 && code < 300) return JSON.parse(lastText);
+
+    var transient = (code === 429 || code === 500 || code === 503);
+    if (!transient || attempt === MAX_ATTEMPTS) {
+      throw new Error('Gemini ' + code + ': ' + lastText);
+    }
+    console.warn('Gemini ' + code + ' (attempt ' + attempt + '/' + MAX_ATTEMPTS + '), retrying');
+    Utilities.sleep(Math.pow(2, attempt) * 500); // 1s, 2s, 4s
+  }
+  throw new Error('Gemini failed after retries: ' + lastText);
 }
 
 function geminiText_(body) {
