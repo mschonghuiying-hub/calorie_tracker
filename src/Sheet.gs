@@ -155,3 +155,34 @@ function writeProfile_(chatId, profile, targets) {
   }
   SpreadsheetApp.flush();
 }
+
+/**
+ * Deletes this user's most recently logged food row (the last matching row in
+ * append order). Returns the removed entry { meal, description, calories,
+ * protein_g, carbs_g, fat_g, date } or null if the user has nothing logged.
+ */
+function deleteLastFood_(chatId) {
+  var sheet = foodSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+
+  var values = sheet.getRange(2, 1, lastRow - 1, FOOD_HEADERS_.length).getValues();
+  var target = String(chatId);
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (String(values[i][1]).trim() !== target) continue;
+    var r = values[i];
+    var removed = {
+      date: asYmd_(r[0]),
+      meal: r[2],
+      description: r[3],
+      calories: Number(r[4]) || 0,
+      protein_g: Number(r[5]) || 0,
+      carbs_g: Number(r[6]) || 0,
+      fat_g: Number(r[7]) || 0
+    };
+    sheet.deleteRow(i + 2);
+    SpreadsheetApp.flush();
+    return removed;
+  }
+  return null;
+}

@@ -59,6 +59,9 @@ Fat      ███████░░░   40/  58
 **Check the day** — `/today` (or `/status`) shows the table plus a 💬 AI nudge
 about what's left and what to eat.
 
+**Fix a mistake** — `/undo` removes your most recent food entry and shows the
+refreshed status.
+
 ---
 
 ## Setup (zero-knowledge, ~15 min, all in a browser)
