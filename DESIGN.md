@@ -13,7 +13,7 @@ cost-effective, launchable MVP**.
 2. Photograph or describe food → analyze macros → save it.
 3. Show the user their latest daily status.
 
-## Confirmed product decisions
+## Design decisions
 
 - **Multi-user**: shared bot + sheet, with per-person profile/targets keyed by `chat_id`.
 - Profile entered via a **`/profile` free-text command** (Gemini parses it).
@@ -23,7 +23,7 @@ cost-effective, launchable MVP**.
 
 ## Recommended stack — clone the `auto_record_expense` architecture
 
-Already the most cost-effective option, and the user knows how to deploy it.
+The most cost-effective option for a personal or small-group MVP.
 
 | Layer | Choice | Cost |
 |---|---|---|
@@ -172,31 +172,38 @@ user to resend with the missing piece (no partial profile saved).
   Carbs    █████░░░░░  120/ 261
   Fat      ███████░░░   40/  58
   ```
-  (Reuse `makeBar_` and the `formatSummaryTable_`-style monospace `<pre>` rendering.)
+  (Rendered by the shared `barTable_` monospace `<pre>` helper.)
 - **`/today`** (analogous to the expense bot's `/summary`) → status bars + a
   💬 Gemini nutrition nudge (e.g. "You've got 600 kcal and 32g protein left — a
   chicken + yogurt snack would round out the day nicely.").
-- No profile yet → any food log still records, but the bot prompts the user to
-  run `/profile` so targets can be shown.
+- **`/week`** → average calories/macros per day over the last 7 days vs targets
+  (averaged across the days actually logged).
+- **`/undo`** → removes the most recent food entry and shows the refreshed status.
+- Any unknown `/command` replies with a hint instead of being logged as food.
+- No profile yet → food still records, but the bot prompts you to run `/profile`
+  so targets can be shown.
 
 ---
 
-## File-level build plan (for the implementation phase)
+## Project structure (`src/`)
 
-Mirror the expense repo's `src/` layout:
-- `Code.gs` — `processUpdate_` router (profile cmd / today cmd / food), dedup,
-  allowlist, confirmation + bar formatting helpers.
-- `Gemini.gs` — `callGeminiFood_`, `callGeminiProfile_`, `callGeminiNudge_`.
-- `Sheet.gs` — `appendFood_`, `readProfile_(chatId)`, `writeProfile_`,
-  `computeTodayTotals_(chatId)`.
-- `Targets.gs` — Mifflin-St Jeor BMR / TDEE / macro math (pure, unit-testable functions).
-- `Telegram.gs` — `sendMessage_`, `downloadTelegramFile_` (verbatim reuse).
-- `Poller.gs` — `pollUpdates` (verbatim reuse).
+Mirrors the expense repo's layout:
+- `Code.gs` — `processUpdate_` router (`/profile`, `/today`, `/week`, `/undo`,
+  unknown-command guard, food), dedup, `chat_id` allowlist, and the shared
+  `barTable_` status renderer.
+- `Gemini.gs` — `callGeminiFood_`, `callGeminiProfile_`, `callGeminiNudge_`,
+  with retry/backoff on transient 429/500/503.
+- `Sheet.gs` — `appendFood_`, `computeTodayTotals_`, `computeWeekSummary_`,
+  `readProfile_`, `writeProfile_`, `deleteLastFood_`; auto-creates the
+  `food log` + `profile` tabs.
+- `Targets.gs` — Mifflin-St Jeor BMR / TDEE / macro math, with a deficit cap
+  (25% of TDEE) and a minimum-calorie floor (1200 women / 1500 men).
+- `Telegram.gs` — `sendMessage_`, `downloadTelegramFile_`.
+- `Poller.gs` — `pollUpdates` long-polling on a 1-minute trigger.
 - `Setup.gs` — `enablePolling`, `getWebhookInfo`, `testParseFood`, `testProfile`.
-- `appsscript.json` — same OAuth scopes + V8 runtime.
-- `README.md` — zero-knowledge setup guide adapted from the expense bot
-  (BotFather → chat ID → Gemini key → paste files → Script Properties:
-  `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `ALLOWED_CHAT_ID`, `SHEET_NAME`).
+- `appsscript.json` — OAuth scopes + V8 runtime.
+- `README.md` — zero-knowledge setup guide (BotFather → chat ID → Gemini key →
+  paste files → Script Properties).
 
 ## Free-tier headroom
 

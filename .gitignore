@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+
+# Local secrets / credentials (never commit)
+.env
+.env.*
+credentials.json
+*.pem
+*.key
+
+# Apps Script tooling (clasp) — contains your scriptId
+.clasp.json
+.clasprc.json
+
+# Node tooling, in case clasp or similar is added later
+node_modules/
