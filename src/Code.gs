@@ -59,6 +59,12 @@ function processUpdate_(update) {
       return;
     }
 
+    if (isCommand_(text, 'undo')) {
+      handleUndoCommand_(chatId);
+      markUpdateProcessed_(updateId);
+      return;
+    }
+
     // Otherwise treat the message as a food entry (photo or free text).
     handleFood_(chatId, msg);
     markUpdateProcessed_(updateId);
@@ -153,6 +159,24 @@ function handleTodayCommand_(chatId) {
   sendMessage_(chatId, reply, 'HTML');
 }
 
+function handleUndoCommand_(chatId) {
+  var removed = deleteLastFood_(chatId);
+  if (!removed) {
+    sendMessage_(chatId, 'Nothing to undo — no food logged yet.');
+    return;
+  }
+  var line = '🗑 Removed: ' + capitalize_(removed.meal) + ' · ' + removed.description +
+             ' (' + Math.round(removed.calories) + ' kcal)';
+
+  var profile = readProfile_(chatId);
+  if (!profile) {
+    sendMessage_(chatId, line);
+    return;
+  }
+  var totals = computeTodayTotals_(chatId);
+  sendMessage_(chatId, escapeHtml_(line) + '\n\n' + formatStatusTable_(totals, profile), 'HTML');
+}
+
 // ---------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------
@@ -222,6 +246,7 @@ function helpText_() {
     '2) Log food: send a photo or text like "chicken rice bowl".',
     '3) Check the day: /today',
     '',
+    '/undo removes your last entry.',
     '/profile (no text) shows your current targets.'
   ].join('\n');
 }
