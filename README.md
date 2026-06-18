@@ -23,7 +23,8 @@ Apps Script (1-min trigger) ──getUpdates──▶ Telegram
         │
         ├─ /profile <text> ─▶ Gemini parse ─▶ Mifflin-St Jeor ─▶ save targets
         ├─ food text/photo ─▶ Gemini macros ─▶ append row ─▶ confirm + status
-        └─ /today ──────────▶ sum today vs targets ─▶ table + AI nudge
+        ├─ /move <text> ────▶ Gemini burn est. ─▶ append row ─▶ raises today's kcal
+        └─ /today ──────────▶ food vs (targets + activity) ─▶ table + AI nudge
 ```
 
 Why polling instead of a webhook? Apps Script `/exec` URLs return a 302 redirect
@@ -56,15 +57,33 @@ Carbs    █████░░░░░  120/ 261
 Fat      ███████░░░   40/  58
 ```
 
+**Log activity** — `/move` with steps and/or workouts; the calories burned are
+added to *today's* calorie target (macros stay fixed), so you earn back room to eat:
+```
+/move 8000 steps and a 30 min run
+→ 🔥 Logged: 8,000 steps + 30 min run
+  ~420 kcal burned
+
+  📊 Today 2026-06-17
+  🔥 +420 kcal from activity
+  Calories ██████░░░░ 1450/2507
+  ...
+```
+Gemini estimates the burn using your weight from `/profile`.
+**Tip:** for the most accurate numbers, set your `/profile` activity to
+`sedentary` and log *all* your movement with `/move` — otherwise the profile's
+activity factor and your logged exercise both count and you double-up.
+
 **Check the day** — `/today` (or `/status`) shows the table plus a 💬 AI nudge
 about what's left and what to eat.
 
 **Check the week** — `/week` shows your average calories/macros per day over the
-last 7 days vs your targets (averaged over the days you actually logged).
+last 7 days vs your targets (averaged over the days you actually logged), plus
+your average daily calories burned.
 
-**Fix a mistake** — `/undo` removes your most recent food entry and shows the
-refreshed status. Any unknown `/command` replies with a hint instead of being
-logged as food.
+**Fix a mistake** — `/undo` removes your most recent entry (food *or* activity)
+and shows the refreshed status. Any unknown `/command` replies with a hint
+instead of being logged as food.
 
 ---
 
@@ -85,8 +104,9 @@ logged as food.
    **Create API key**. Copy it.
 
 ### 4. Create the sheet + open Apps Script
-1. Create a new Google Sheet (any name). The bot creates the `food log` and
-   `profile` tabs automatically on first use — you don't add them manually.
+1. Create a new Google Sheet (any name). The bot creates the `food log`,
+   `profile`, and `exercise log` tabs automatically on first use — you don't add
+   them manually.
 2. **Extensions → Apps Script**. Rename the project to `calorie_tracker`.
 
 ### 5. Paste the code

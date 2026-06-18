@@ -22,6 +22,9 @@ var PROFILE_HEADERS_ = [
   'chat_id', 'sex', 'age', 'height_cm', 'weight_kg', 'activity', 'goal',
   'target_calories', 'target_protein_g', 'target_carbs_g', 'target_fat_g', 'updated_at'
 ];
+var EXERCISE_HEADERS_ = [
+  'date', 'chat_id', 'description', 'calories_burned', 'steps', 'logged_at'
+];
 
 function foodSheet_() {
   var name = props_().getProperty('SHEET_NAME') || 'food log';
@@ -31,6 +34,11 @@ function foodSheet_() {
 function profileSheet_() {
   var name = props_().getProperty('PROFILE_SHEET_NAME') || 'profile';
   return getOrCreateSheet_(name, PROFILE_HEADERS_);
+}
+
+function exerciseSheet_() {
+  var name = props_().getProperty('EXERCISE_SHEET_NAME') || 'exercise log';
+  return getOrCreateSheet_(name, EXERCISE_HEADERS_);
 }
 
 function getOrCreateSheet_(name, headers) {
@@ -57,6 +65,26 @@ function todayIso_() {
 function asYmd_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, tz_(), 'yyyy-MM-dd');
   return String(v).trim();
+}
+
+// A logged_at cell may be a Date or a string — normalize to epoch ms for
+// chronological comparison (used by /undo across the food + exercise logs).
+function loggedAtMs_(v) {
+  if (v instanceof Date) return v.getTime();
+  return Date.parse(String(v)) || 0;
+}
+
+// Returns { rowIndex, row } of the last row matching chatId (column B) in
+// append order, or null. Shared by the delete/peek helpers below.
+function lastUserRow_(sheet, width, chatId) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  var values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+  var target = String(chatId);
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (String(values[i][1]).trim() === target) return { rowIndex: i + 2, row: values[i] };
+  }
+  return null;
 }
 
 /**
@@ -220,26 +248,129 @@ function writeProfile_(chatId, profile, targets) {
  */
 function deleteLastFood_(chatId) {
   var sheet = foodSheet_();
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return null;
+  var hit = lastUserRow_(sheet, FOOD_HEADERS_.length, chatId);
+  if (!hit) return null;
+  var r = hit.row;
+  var removed = {
+    date: asYmd_(r[0]),
+    meal: r[2],
+    description: r[3],
+    calories: Number(r[4]) || 0,
+    protein_g: Number(r[5]) || 0,
+    carbs_g: Number(r[6]) || 0,
+    fat_g: Number(r[7]) || 0
+  };
+  sheet.deleteRow(hit.rowIndex);
+  SpreadsheetApp.flush();
+  return removed;
+}
 
-  var values = sheet.getRange(2, 1, lastRow - 1, FOOD_HEADERS_.length).getValues();
+// Last food logged_at (epoch ms) for this user, or null — used by /undo.
+function peekLastFoodMs_(chatId) {
+  var hit = lastUserRow_(foodSheet_(), FOOD_HEADERS_.length, chatId);
+  return hit ? loggedAtMs_(hit.row[8]) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Exercise / activity log
+// ---------------------------------------------------------------------------
+
+/**
+ * Appends one activity row for the given user, dated today (script timezone).
+ * ex: { description, calories_burned, steps }
+ */
+function appendExercise_(chatId, ex) {
+  var sheet = exerciseSheet_();
+  var now = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm:ss');
+  sheet.appendRow([
+    todayIso_(),
+    String(chatId),
+    ex.description,
+    Math.round(ex.calories_burned),
+    Math.round(ex.steps) || 0,
+    now
+  ]);
+  SpreadsheetApp.flush();
+}
+
+/**
+ * Sums today's activity for one user.
+ * Returns { calories, steps, count } (calories = total kcal burned today).
+ */
+function computeTodayBurn_(chatId) {
+  var burn = { calories: 0, steps: 0, count: 0 };
+  var sheet = exerciseSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return burn;
+
+  var values = sheet.getRange(2, 1, lastRow - 1, EXERCISE_HEADERS_.length).getValues();
+  var today = todayIso_();
   var target = String(chatId);
-  for (var i = values.length - 1; i >= 0; i--) {
+  for (var i = 0; i < values.length; i++) {
+    if (asYmd_(values[i][0]) !== today) continue;
     if (String(values[i][1]).trim() !== target) continue;
-    var r = values[i];
-    var removed = {
-      date: asYmd_(r[0]),
-      meal: r[2],
-      description: r[3],
-      calories: Number(r[4]) || 0,
-      protein_g: Number(r[5]) || 0,
-      carbs_g: Number(r[6]) || 0,
-      fat_g: Number(r[7]) || 0
-    };
-    sheet.deleteRow(i + 2);
-    SpreadsheetApp.flush();
-    return removed;
+    burn.calories += Number(values[i][3]) || 0;
+    burn.steps    += Number(values[i][4]) || 0;
+    burn.count++;
   }
-  return null;
+  return burn;
+}
+
+/**
+ * Average kcal burned per day over the last 7 days, across days with activity.
+ * Returns { days, avgCalories } with days === 0 when none logged.
+ */
+function computeWeekBurn_(chatId) {
+  var sheet = exerciseSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { days: 0, avgCalories: 0 };
+
+  var values = sheet.getRange(2, 1, lastRow - 1, EXERCISE_HEADERS_.length).getValues();
+  var target = String(chatId);
+  var tz = tz_();
+  var now = new Date();
+  var validDates = {};
+  for (var d = 0; d < 7; d++) {
+    validDates[Utilities.formatDate(new Date(now.getTime() - d * 86400000), tz, 'yyyy-MM-dd')] = true;
+  }
+
+  var perDay = {};
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][1]).trim() !== target) continue;
+    var ymd = asYmd_(values[i][0]);
+    if (!validDates[ymd]) continue;
+    perDay[ymd] = (perDay[ymd] || 0) + (Number(values[i][3]) || 0);
+  }
+
+  var keys = Object.keys(perDay);
+  if (!keys.length) return { days: 0, avgCalories: 0 };
+  var sum = 0;
+  for (var k = 0; k < keys.length; k++) sum += perDay[keys[k]];
+  return { days: keys.length, avgCalories: sum / keys.length };
+}
+
+/**
+ * Deletes this user's most recently logged activity row. Returns the removed
+ * entry { date, description, calories, steps } or null if nothing logged.
+ */
+function deleteLastExercise_(chatId) {
+  var sheet = exerciseSheet_();
+  var hit = lastUserRow_(sheet, EXERCISE_HEADERS_.length, chatId);
+  if (!hit) return null;
+  var r = hit.row;
+  var removed = {
+    date: asYmd_(r[0]),
+    description: r[2],
+    calories: Number(r[3]) || 0,
+    steps: Number(r[4]) || 0
+  };
+  sheet.deleteRow(hit.rowIndex);
+  SpreadsheetApp.flush();
+  return removed;
+}
+
+// Last activity logged_at (epoch ms) for this user, or null — used by /undo.
+function peekLastExerciseMs_(chatId) {
+  var hit = lastUserRow_(exerciseSheet_(), EXERCISE_HEADERS_.length, chatId);
+  return hit ? loggedAtMs_(hit.row[5]) : null;
 }
