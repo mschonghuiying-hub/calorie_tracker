@@ -103,9 +103,21 @@ Reuse the expense bot's proven mechanics verbatim:
 | K | target_fat_g |
 | L | updated_at |
 
+### Tab `exercise log` (bot appends)
+| Col | Field | Notes |
+|---|---|---|
+| A | date | `YYYY-MM-DD` |
+| B | chat_id | which user logged it |
+| C | description | e.g. "8,000 steps + 30 min run" |
+| D | calories_burned | number (kcal) |
+| E | steps | number (0 if none) |
+| F | logged_at | timestamp |
+
 > Daily totals are **computed in code** by summing `food log` rows where
 > `date == today AND chat_id == user` — so there is **no** manually maintained
-> insights tab (an improvement over the expense bot: less setup friction).
+> insights tab (an improvement over the expense bot: less setup friction). The
+> same applies to today's activity burn from `exercise log`, which raises that
+> day's calorie target (macros unchanged).
 
 ---
 
@@ -176,9 +188,15 @@ user to resend with the missing piece (no partial profile saved).
 - **`/today`** (analogous to the expense bot's `/summary`) → status bars + a
   💬 Gemini nutrition nudge (e.g. "You've got 600 kcal and 32g protein left — a
   chicken + yogurt snack would round out the day nicely.").
+- **`/move 8000 steps and a 30 min run`** → Gemini estimates kcal burned (using
+  the profile's weight), logs it, and raises *today's* calorie target by that
+  amount (macros unchanged). Status shows a `🔥 +X kcal from activity` line.
+  Recommendation: set `/profile` activity to `sedentary` and log all movement
+  here to avoid double-counting the activity factor.
 - **`/week`** → average calories/macros per day over the last 7 days vs targets
-  (averaged across the days actually logged).
-- **`/undo`** → removes the most recent food entry and shows the refreshed status.
+  (averaged across the days actually logged), plus average daily calories burned.
+- **`/undo`** → removes the most recent entry — food *or* activity, whichever is
+  newer — and shows the refreshed status.
 - Any unknown `/command` replies with a hint instead of being logged as food.
 - No profile yet → food still records, but the bot prompts you to run `/profile`
   so targets can be shown.
@@ -188,14 +206,16 @@ user to resend with the missing piece (no partial profile saved).
 ## Project structure (`src/`)
 
 Mirrors the expense repo's layout:
-- `Code.gs` — `processUpdate_` router (`/profile`, `/today`, `/week`, `/undo`,
-  unknown-command guard, food), dedup, `chat_id` allowlist, and the shared
-  `barTable_` status renderer.
-- `Gemini.gs` — `callGeminiFood_`, `callGeminiProfile_`, `callGeminiNudge_`,
-  with retry/backoff on transient 429/500/503.
-- `Sheet.gs` — `appendFood_`, `computeTodayTotals_`, `computeWeekSummary_`,
-  `readProfile_`, `writeProfile_`, `deleteLastFood_`; auto-creates the
-  `food log` + `profile` tabs.
+- `Code.gs` — `processUpdate_` router (`/profile`, `/move`, `/today`, `/week`,
+  `/undo`, unknown-command guard, food), dedup, `chat_id` allowlist, the shared
+  `barTable_` renderer, and `effectiveTargets_` (folds today's burn into the
+  calorie target).
+- `Gemini.gs` — `callGeminiFood_`, `callGeminiMove_`, `callGeminiProfile_`,
+  `callGeminiNudge_`, with retry/backoff on transient 429/500/503.
+- `Sheet.gs` — `appendFood_`/`appendExercise_`, `computeTodayTotals_`/
+  `computeTodayBurn_`, `computeWeekSummary_`/`computeWeekBurn_`, `readProfile_`,
+  `writeProfile_`, `deleteLastFood_`/`deleteLastExercise_`; auto-creates the
+  `food log`, `profile`, and `exercise log` tabs.
 - `Targets.gs` — Mifflin-St Jeor BMR / TDEE / macro math, with a deficit cap
   (25% of TDEE) and a minimum-calorie floor (1200 women / 1500 men).
 - `Telegram.gs` — `sendMessage_`, `downloadTelegramFile_`.

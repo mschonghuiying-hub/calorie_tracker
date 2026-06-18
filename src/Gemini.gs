@@ -91,6 +91,63 @@ function validateFood_(x) {
 }
 
 // ---------------------------------------------------------------------------
+// Activity / exercise estimation
+// ---------------------------------------------------------------------------
+
+function callGeminiMove_(text, profile) {
+  var body = {
+    contents: [{ role: 'user', parts: [{ text: buildMovePrompt_(text || '', profile) }] }],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      response_schema: {
+        type: 'OBJECT',
+        properties: {
+          description:     { type: 'STRING' },
+          calories_burned: { type: 'NUMBER' },
+          steps:           { type: 'NUMBER' }
+        },
+        required: ['description', 'calories_burned', 'steps']
+      },
+      temperature: 0
+    }
+  };
+
+  var ex = JSON.parse(geminiJson_(body));
+  validateMove_(ex);
+  return ex;
+}
+
+function buildMovePrompt_(text, profile) {
+  var kg = (profile && profile.weight_kg) || 70;
+  return [
+    'You estimate the calories a person burned from the activity they describe',
+    '(steps and/or workouts) and return strict JSON. The person weighs ' + kg + ' kg.',
+    '',
+    'Rules:',
+    '- calories_burned: total kcal burned across everything mentioned. Number.',
+    '  Steps: estimate as steps × ' + kg + ' × 0.0005 kcal.',
+    '  Named workouts: METs × ' + kg + ' × hours (walking ~3.5, brisk walk ~4.3,',
+    '  jog/run ~8-11, cycling ~8, swimming ~7, strength training ~4-6, yoga ~3).',
+    '- steps: total step count mentioned, else 0. Number.',
+    '- description: short summary of the activity, e.g. "8,000 steps + 30 min run".',
+    '- Only count active exercise/steps, not normal resting time.',
+    '',
+    'User text: ' + JSON.stringify(text || '(none)')
+  ].join('\n');
+}
+
+function validateMove_(x) {
+  if (!x || typeof x !== 'object') throw new Error('Activity not an object');
+  if (!x.description) throw new Error('Missing description');
+  if (typeof x.calories_burned !== 'number' || !isFinite(x.calories_burned) || x.calories_burned < 0) {
+    throw new Error('Bad calories_burned: ' + x.calories_burned);
+  }
+  if (typeof x.steps !== 'number' || !isFinite(x.steps) || x.steps < 0) {
+    throw new Error('Bad steps: ' + x.steps);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Profile parsing
 // ---------------------------------------------------------------------------
 

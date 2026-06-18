@@ -3,7 +3,8 @@
  *
  * Flow (shared by the poller in Poller.gs and the webhook fallback doPost):
  *   /profile <text>  -> Gemini parse -> Mifflin-St Jeor targets -> save + reply
- *   /today | /status -> sum today's food vs targets -> table + AI nudge
+ *   /move <text>     -> Gemini burn estimate -> append row -> raises today's kcal
+ *   /today | /status -> sum today's food vs (targets + activity) -> table + nudge
  *   text / photo      -> Gemini macro estimate -> append row -> confirm + status
  *
  * Everything runs serverless on Apps Script: no VM, no host, free tier.
@@ -61,6 +62,12 @@ function processUpdate_(update) {
 
     if (isCommand_(text, 'week')) {
       handleWeekCommand_(chatId);
+      markUpdateProcessed_(updateId);
+      return;
+    }
+
+    if (isCommand_(text, 'move')) {
+      handleMoveCommand_(chatId, text);
       markUpdateProcessed_(updateId);
       return;
     }
@@ -149,8 +156,42 @@ function handleFood_(chatId, msg) {
   }
 
   var totals = computeTodayTotals_(chatId);
-  var reply = escapeHtml_(confirmation) + '\n\n' + formatStatusTable_(totals, profile);
+  var burn = computeTodayBurn_(chatId);
+  var reply = escapeHtml_(confirmation) + '\n\n' + formatStatusTable_(totals, profile, burn);
   sendMessage_(chatId, reply, 'HTML');
+}
+
+function handleMoveCommand_(chatId, text) {
+  var profile = readProfile_(chatId);
+  if (!profile) {
+    sendMessage_(chatId,
+      'Set up your profile first so I can estimate burn from your weight:\n' +
+      '/profile male 30 175cm 72kg sedentary lose weight');
+    return;
+  }
+
+  var args = stripCommand_(text, 'move');
+  if (!args) {
+    var b = computeTodayBurn_(chatId);
+    var msg = 'Tell me your activity, e.g.:\n/move 8000 steps and a 30 min run';
+    if (b.count) {
+      msg += '\n\nToday so far: ' + Math.round(b.calories) + ' kcal burned' +
+             (b.steps ? ' (' + formatInt_(b.steps) + ' steps)' : '');
+    }
+    msg += '\n\nTip: for the most accurate numbers, set your /profile activity to ' +
+           '"sedentary" and log all your movement here.';
+    sendMessage_(chatId, msg);
+    return;
+  }
+
+  var ex = callGeminiMove_(args, profile);
+  appendExercise_(chatId, ex);
+
+  var line = '🔥 Logged: ' + ex.description + '\n~' +
+             Math.round(ex.calories_burned) + ' kcal burned';
+  var totals = computeTodayTotals_(chatId);
+  var burn = computeTodayBurn_(chatId);
+  sendMessage_(chatId, escapeHtml_(line) + '\n\n' + formatStatusTable_(totals, profile, burn), 'HTML');
 }
 
 function handleTodayCommand_(chatId) {
@@ -163,11 +204,12 @@ function handleTodayCommand_(chatId) {
   }
 
   var totals = computeTodayTotals_(chatId);
-  var reply = formatStatusTable_(totals, profile);
+  var burn = computeTodayBurn_(chatId);
+  var reply = formatStatusTable_(totals, profile, burn);
   if (totals.count === 0) {
     reply += '\n\nNothing logged yet today — send a food photo or description.';
   } else {
-    var nudge = callGeminiNudge_(totals, profile, profile);
+    var nudge = callGeminiNudge_(totals, effectiveTargets_(profile, burn.calories), profile);
     if (nudge) reply += '\n\n💬 ' + escapeHtml_(nudge);
   }
   sendMessage_(chatId, reply, 'HTML');
@@ -186,17 +228,34 @@ function handleWeekCommand_(chatId) {
     sendMessage_(chatId, 'No food logged in the last 7 days yet.');
     return;
   }
-  sendMessage_(chatId, formatWeekTable_(wk, profile), 'HTML');
+  var reply = formatWeekTable_(wk, profile);
+  var wb = computeWeekBurn_(chatId);
+  if (wb.days) {
+    reply += '\n🔥 avg ' + Math.round(wb.avgCalories) + ' kcal/day burned over ' +
+             wb.days + ' active day' + (wb.days === 1 ? '' : 's');
+  }
+  sendMessage_(chatId, reply, 'HTML');
 }
 
 function handleUndoCommand_(chatId) {
-  var removed = deleteLastFood_(chatId);
-  if (!removed) {
-    sendMessage_(chatId, 'Nothing to undo — no food logged yet.');
+  var foodMs = peekLastFoodMs_(chatId);
+  var exMs = peekLastExerciseMs_(chatId);
+  if (foodMs == null && exMs == null) {
+    sendMessage_(chatId, 'Nothing to undo — nothing logged yet.');
     return;
   }
-  var line = '🗑 Removed: ' + capitalize_(removed.meal) + ' · ' + removed.description +
-             ' (' + Math.round(removed.calories) + ' kcal)';
+
+  var line;
+  // Remove whichever log has the most recent entry.
+  if (exMs != null && (foodMs == null || exMs >= foodMs)) {
+    var rex = deleteLastExercise_(chatId);
+    line = '🗑 Removed activity: ' + rex.description +
+           ' (~' + Math.round(rex.calories) + ' kcal burned)';
+  } else {
+    var rf = deleteLastFood_(chatId);
+    line = '🗑 Removed: ' + capitalize_(rf.meal) + ' · ' + rf.description +
+           ' (' + Math.round(rf.calories) + ' kcal)';
+  }
 
   var profile = readProfile_(chatId);
   if (!profile) {
@@ -204,7 +263,8 @@ function handleUndoCommand_(chatId) {
     return;
   }
   var totals = computeTodayTotals_(chatId);
-  sendMessage_(chatId, escapeHtml_(line) + '\n\n' + formatStatusTable_(totals, profile), 'HTML');
+  var burn = computeTodayBurn_(chatId);
+  sendMessage_(chatId, escapeHtml_(line) + '\n\n' + formatStatusTable_(totals, profile, burn), 'HTML');
 }
 
 // ---------------------------------------------------------------------------
@@ -226,8 +286,24 @@ function formatProfileReply_(profile, targets, saved) {
     '(Mifflin-St Jeor · ' + profile.activity + ' activity · goal: ' + profile.goal + ')';
 }
 
-function formatStatusTable_(totals, targets) {
-  return barTable_('📊 Today ' + todayIso_(), totals, targets);
+// Today's calorie target rises by calories burned (macros stay fixed); burn is
+// the optional { calories, steps, count } from computeTodayBurn_.
+function effectiveTargets_(profile, burnKcal) {
+  return {
+    target_calories: profile.target_calories + Math.round(burnKcal || 0),
+    target_protein_g: profile.target_protein_g,
+    target_carbs_g: profile.target_carbs_g,
+    target_fat_g: profile.target_fat_g
+  };
+}
+
+function formatStatusTable_(totals, profile, burn) {
+  var burnKcal = (burn && burn.calories) || 0;
+  var header = '📊 Today ' + todayIso_();
+  if (burnKcal > 0) {
+    header += '\n🔥 +' + Math.round(burnKcal) + ' kcal from activity';
+  }
+  return barTable_(header, totals, effectiveTargets_(profile, burnKcal));
 }
 
 function formatWeekTable_(wk, targets) {
@@ -283,9 +359,11 @@ function helpText_() {
     '1) Set your targets:',
     '   /profile male 30 175cm 72kg moderately active lose weight',
     '2) Log food: send a photo or text like "chicken rice bowl".',
-    '3) Check the day: /today · the week: /week',
+    '3) Log activity: /move 8000 steps and a 30 min run',
+    '   (earns back calories for the day)',
+    '4) Check the day: /today · the week: /week',
     '',
-    '/undo removes your last entry.',
+    '/undo removes your last entry (food or activity).',
     '/profile (no text) shows your current targets.'
   ].join('\n');
 }
@@ -344,6 +422,10 @@ function escapeHtml_(s) {
 function capitalize_(s) {
   s = String(s || '');
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function formatInt_(n) {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function padLeft_(s, n) { while (s.length < n) s = ' ' + s; return s; }

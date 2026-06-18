@@ -69,3 +69,14 @@ function testParseFood() {
   appendFood_('TEST', food);
   console.log("Today's totals for TEST: " + JSON.stringify(computeTodayTotals_('TEST')));
 }
+
+/**
+ * Smoke-test Gemini activity parsing + the exercise sheet. Appends a row for
+ * chat_id "TEST" to the exercise log. Delete the row afterwards.
+ */
+function testMove() {
+  var ex = callGeminiMove_('8000 steps and a 30 min run', { weight_kg: 72 });
+  console.log('Parsed activity: ' + JSON.stringify(ex));
+  appendExercise_('TEST', ex);
+  console.log("Today's burn for TEST: " + JSON.stringify(computeTodayBurn_('TEST')));
+}
